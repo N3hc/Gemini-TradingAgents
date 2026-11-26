@@ -1,0 +1,33 @@
+# Symbols the screener looks at (gemini-tradingagents screen / GD_WATCHLIST=auto). One ticker per line, # starts a comment.
+# Starting list: the 30 Dow Jones Industrial Average members as of late 2024. Index members change: edit freely,
+# or point GD_UNIVERSE at your own file. Each symbol is one free Yahoo request a day; a few hundred is fine.
+AAPL
+AMGN
+AMZN
+AXP
+BA
+CAT
+CRM
+CSCO
+CVX
+DIS
+GS
+HD
+HON
+IBM
+JNJ
+JPM
+KO
+MCD
+MMM
+MRK
+MSFT
+NKE
+NVDA
+PG
+SHW
+TRV
+UNH
+V
+VZ
+WMT

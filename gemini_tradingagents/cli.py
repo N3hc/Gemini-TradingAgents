@@ -5,6 +5,7 @@
   gemini-tradingagents AAPL --paper             print the Alpaca PAPER order from the latest AAPL verdict
   gemini-tradingagents AAPL --paper --send      send it to Alpaca PAPER (paper-api only)
   gemini-tradingagents bot AAPL MSFT            autopilot, one pass: research each, send GO orders to Alpaca PAPER
+  gemini-tradingagents screen                   technical filters pick today's symbols (bot uses them with GD_WATCHLIST=auto)
   gemini-tradingagents audit strategy.py --report backtest.txt
   gemini-tradingagents doctor                   what is installed, which keys are set
   gemini-tradingagents models                   which model does which job
@@ -104,7 +105,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="gemini-tradingagents", description="Three proven trading repos, four Gemini 4 models, one verdict.")
     ap.add_argument("--dry-run", action="store_true", help="show every command, call nothing (no key needed)")
     ap.add_argument("--out", default="reports")
-    cmds = {"audit", "bot", "doctor", "models"}
+    cmds = {"audit", "bot", "doctor", "models", "screen"}
     first = next((a for i, a in enumerate(argv) if not a.startswith("-") and (i == 0 or argv[i - 1] != "--out")), None)
     if first and first not in cmds:
         ap.add_argument("symbol")
@@ -124,7 +125,8 @@ def main(argv=None):
         return 0
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("bot", help="autopilot, one pass: research every symbol and send GO orders to Alpaca PAPER (schedule it once a day)")
-    b.add_argument("symbols", nargs="*", help="default: GD_WATCHLIST from .env")
+    b.add_argument("symbols", nargs="*", help="default: GD_WATCHLIST from .env; 'auto' = today's screen picks")
+    sub.add_parser("screen", help="technical filters pick today's symbols from mandates/universe.txt (free, no model)")
     a = sub.add_parser("audit", help="second opinion on a strategy's code and backtest report (Neon finds, Carbon confirms)")
     a.add_argument("code", nargs="+")
     a.add_argument("--report")
@@ -133,12 +135,22 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "doctor":
         return doctor()
+    if args.cmd == "screen":
+        from .screen import report, screen
+        report(*screen())
+        return 0
     if args.cmd == "bot":
         from .bot import bot
         syms = args.symbols or [s.strip() for s in os.environ.get("GD_WATCHLIST", "").split(",") if s.strip()]
         if not syms:
-            print("No symbols. Run: gemini-tradingagents bot AAPL MSFT, or set GD_WATCHLIST=AAPL,MSFT in .env")
+            print("No symbols. Run: gemini-tradingagents bot AAPL MSFT, or set GD_WATCHLIST=AAPL,MSFT (or auto) in .env")
             return 1
+        if [s.lower() for s in syms] == ["auto"]:
+            from .screen import report, screen
+            syms = report(*screen())
+            if not syms:
+                print("No symbol passed the screen today: nothing to research.")
+                return 0
         out = Path(args.out)
         out.mkdir(exist_ok=True)
         return bot(syms, lambda s, cap, pnl: research(s, out, cap, args.dry_run, day_pnl_pct=pnl), args.dry_run)
