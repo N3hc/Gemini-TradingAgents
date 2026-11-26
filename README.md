@@ -82,6 +82,7 @@ gemini-tradingagents AAPL --only brain,vibe     # pick stages (brain, vibe, comm
 gemini-tradingagents --dry-run AAPL             # print every command that would run, call nothing
 gemini-tradingagents AAPL --paper               # print the Alpaca PAPER bracket order from the latest verdict
 gemini-tradingagents AAPL --paper --send        # send it to Alpaca PAPER (paper-api.alpaca.markets only)
+gemini-tradingagents bot AAPL MSFT NVDA         # autopilot, one pass: research each, send GO orders to Alpaca PAPER
 gemini-tradingagents audit strategy.py --report backtest.txt   # Neon lists bugs, Carbon confirms each one
 ```
 
@@ -140,7 +141,9 @@ It draws the levels with price tags, a RISK 1R box and a REWARD box from the sig
 
 ## Paper trading
 
-`--paper` turns the target position into Alpaca bracket orders: limit entry, stop-loss, whole shares; half the shares take profit at Target 1, the rest at Target 2 (one share: a single bracket to Target 2). It prints by default. `--send` posts it to `https://paper-api.alpaca.markets` with `ALPACA_KEY` / `ALPACA_SECRET` from an Alpaca paper account (no deposit needed). The code contains no live-trading endpoint. It refuses dry-run results and NO-GO verdicts. Stocks only.
+`--paper` turns the target position into Alpaca bracket orders: good-till-canceled limit entry, stop-loss, whole shares; half the shares take profit at Target 1, the rest at Target 2 (one share: a single bracket to Target 2). It prints by default. `--send` posts it to `https://paper-api.alpaca.markets` with `ALPACA_KEY` / `ALPACA_SECRET` from an Alpaca paper account (no deposit needed). The code contains no live-trading endpoint. It refuses dry-run results and NO-GO verdicts. Stocks only.
+
+`bot` runs that on autopilot, Alpaca PAPER only: one pass over a watchlist (`bot AAPL MSFT`, or `GD_WATCHLIST` in `.env`). It skips the day when the market is closed, stops before any model call if the kill switch file exists or today's loss hit `GD_MAX_DAILY_LOSS_PCT`, sizes on the account's equity, leaves symbols with an open position to their stop and take-profit, cancels an unfilled bracket from an older run and researches again. The Alpaca keys are never passed to the outside tools. Schedule it once a day before the US open (Windows: Task Scheduler; macOS/Linux: cron), for example with output appended to `reports/bot.log`. Each symbol is a full research run, so cost grows with the watchlist.
 
 ## Credits
 

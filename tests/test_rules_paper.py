@@ -20,6 +20,8 @@ def test_rules():
     assert v == "GO SMALLER" and abs(f - .5) < 1e-9
     assert rules.check(plan(), calc(atr=.2), 10_000)[0] == "NO-GO"
     assert rules.combine("GO", "NO-GO") == "NO-GO" and rules.combine("GO SMALLER", "GO") == "GO SMALLER"
+    assert rules.halted(-1.9) is None and "daily loss" in rules.halted(-2.0)
+    assert rules.check(plan(), calc(), 10_000, day_pnl_pct=-2.5)[0] == "NO-GO"
     open("KILL", "w").close()
     try:
         assert rules.check(plan(), calc(), 10_000)[0] == "NO-GO"
@@ -33,6 +35,7 @@ def test_paper_orders_two_targets():
     assert err is None and [x["qty"] for x in orders] == ["3", "4"]
     assert [x["take_profit"]["limit_price"] for x in orders] == ["369.80", "383.10"]
     assert all(x["order_class"] == "bracket" and x["stop_loss"]["stop_price"] == "341.20" for x in orders)
+    assert all(x["time_in_force"] == "gtc" for x in orders)       # stop and target stay live past today's close
     one, _ = paper.build_orders({**o, "qty": 1.2})
     assert len(one) == 1 and one[0]["take_profit"]["limit_price"] == "383.10"      # 1 share: single bracket to Target 2
     assert paper.build_orders({**o, "qty": .4})[0] is None

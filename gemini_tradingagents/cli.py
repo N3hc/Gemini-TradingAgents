@@ -4,6 +4,7 @@
   gemini-tradingagents AAPL --only vibe,ta      run some stages (vibe, aihf, ta); the Carbon judge always runs
   gemini-tradingagents AAPL --paper             print the Alpaca PAPER order from the latest AAPL verdict
   gemini-tradingagents AAPL --paper --send      send it to Alpaca PAPER (paper-api only)
+  gemini-tradingagents bot AAPL MSFT            autopilot, one pass: research each, send GO orders to Alpaca PAPER
   gemini-tradingagents audit strategy.py --report backtest.txt
   gemini-tradingagents doctor                   what is installed, which keys are set
   gemini-tradingagents models                   which model does which job
@@ -21,6 +22,7 @@ from pathlib import Path
 
 from .llm import Gemini
 from .roles import PRICES, ROLES, model_for
+from .stages import tool_env
 
 JOBS = {"collector": "Vibe-Trading: data, backtest, walk-forward", "analyst": "ai-hedge-fund: investor committee",
         "strategist": "TradingAgents: deep research with sources", "judge": "ADK judge: final verdict + target position"}
@@ -40,7 +42,7 @@ def load_env(path=".env"):
 
 def _ver(cmd):
     try:
-        p = subprocess.run(cmd, capture_output=True, timeout=60, env={**os.environ, "WSL_UTF8": "1"})
+        p = subprocess.run(cmd, capture_output=True, timeout=60, env=tool_env(WSL_UTF8="1"))
         raw = p.stdout or p.stderr
         txt = raw.decode("utf-16-le" if b"\x00" in raw else "utf-8", errors="replace").strip()  # wsl.exe may answer in UTF-16
         return txt.splitlines()[0][:90] if txt else f"exit {p.returncode}"
@@ -67,6 +69,32 @@ def doctor():
         print(f"  {k:28s} {'set' if os.environ.get(k) else '-'}")
 
 
+def research(symbol, out, capital=10_000, dry_run=False, only=None, deep=False, fast=False, day_pnl_pct=0.0):
+    """One full run for one symbol: report, latest order file and TradingView script. Returns the run dict."""
+    from .desk import report_md, run
+    from .pine import write as write_pine
+    llm = Gemini(dry_run=dry_run)
+    r = run(llm, symbol, out, capital, dry_run, only, deep=deep, fast=fast, day_pnl_pct=day_pnl_pct)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    path = out / f"{r['symbol']}-{stamp}{'-dryrun' if dry_run else ''}.md"
+    path.write_text(report_md(r, llm.usage.table()), encoding="utf-8")
+    (out / f"{r['symbol']}-latest.order.json").write_text(json.dumps(
+        {"order": r["order"], "final": r["final"], "generated": r["generated"], "dry_run": dry_run}, indent=1))
+    for s in r["stages"]:
+        print(f"{s['stage']:14s} {s.get('model', ''):18s} {s['status']}" + (f"  $ {s['command']}" if dry_run else ""))
+        if s["status"] in ("needs billing", "failed") and s.get("stderr"):
+            print("               " + s["stderr"].splitlines()[0][:200])
+    print(f"Judge          {model_for('judge'):18s} {r['judge_engine']}")
+    print(f"Verdict: {r['final']}")
+    o = r["order"]
+    if o:
+        print(f"{o['side'].upper()} {o['qty']} {o['symbol']} · entry {o['entry']} · stop {o['stop']} · Target 1 {o['target_1']} · Target 2 {o['target_2']}")
+    print(f"Report: {path}")
+    pine_path = write_pine(r, out, stamp + ("-dryrun" if dry_run else ""))
+    print(f"TradingView: open Pine Editor, paste {pine_path}, click Add to chart")
+    return r
+
+
 def main(argv=None):
     load_env()
     from .certs import env as ca_env
@@ -76,8 +104,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="gemini-tradingagents", description="Three proven trading repos, four Gemini 4 models, one verdict.")
     ap.add_argument("--dry-run", action="store_true", help="show every command, call nothing (no key needed)")
     ap.add_argument("--out", default="reports")
-    cmds = {"audit", "doctor", "models"}
-    first = next((a for a in argv if not a.startswith("-")), None)
+    cmds = {"audit", "bot", "doctor", "models"}
+    first = next((a for i, a in enumerate(argv) if not a.startswith("-") and (i == 0 or argv[i - 1] != "--out")), None)
     if first and first not in cmds:
         ap.add_argument("symbol")
         ap.add_argument("--only", help="comma list of stages: vibe, committee, ta, aihf")
@@ -92,29 +120,11 @@ def main(argv=None):
         if args.paper:
             from .paper import paper
             return paper(args.symbol, out, send=args.send)
-        from .desk import report_md, run
-        llm = Gemini(dry_run=args.dry_run)
-        r = run(llm, args.symbol, out, args.capital, args.dry_run, args.only.split(",") if args.only else None, deep=args.deep, fast=args.fast)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M")
-        path = out / f"{r['symbol']}-{stamp}{'-dryrun' if args.dry_run else ''}.md"
-        path.write_text(report_md(r, llm.usage.table()), encoding="utf-8")
-        (out / f"{r['symbol']}-latest.order.json").write_text(json.dumps(
-            {"order": r["order"], "final": r["final"], "generated": r["generated"], "dry_run": args.dry_run}, indent=1))
-        for s in r["stages"]:
-            print(f"{s['stage']:14s} {s.get('model', ''):18s} {s['status']}" + (f"  $ {s['command']}" if args.dry_run else ""))
-            if s["status"] in ("needs billing", "failed") and s.get("stderr"):
-                print("               " + s["stderr"].splitlines()[0][:200])
-        print(f"Judge          {model_for('judge'):18s} {r['judge_engine']}")
-        print(f"Verdict: {r['final']}")
-        o = r["order"]
-        if o:
-            print(f"{o['side'].upper()} {o['qty']} {o['symbol']} · entry {o['entry']} · stop {o['stop']} · Target 1 {o['target_1']} · Target 2 {o['target_2']}")
-        print(f"Report: {path}")
-        from .pine import write as write_pine
-        pine_path = write_pine(r, out, stamp + ("-dryrun" if args.dry_run else ""))
-        print(f"TradingView: open Pine Editor, paste {pine_path}, click Add to chart")
+        research(args.symbol, out, args.capital, args.dry_run, args.only.split(",") if args.only else None, deep=args.deep, fast=args.fast)
         return 0
     sub = ap.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("bot", help="autopilot, one pass: research every symbol and send GO orders to Alpaca PAPER (schedule it once a day)")
+    b.add_argument("symbols", nargs="*", help="default: GD_WATCHLIST from .env")
     a = sub.add_parser("audit", help="second opinion on a strategy's code and backtest report (Neon finds, Carbon confirms)")
     a.add_argument("code", nargs="+")
     a.add_argument("--report")
@@ -123,6 +133,15 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "doctor":
         return doctor()
+    if args.cmd == "bot":
+        from .bot import bot
+        syms = args.symbols or [s.strip() for s in os.environ.get("GD_WATCHLIST", "").split(",") if s.strip()]
+        if not syms:
+            print("No symbols. Run: gemini-tradingagents bot AAPL MSFT, or set GD_WATCHLIST=AAPL,MSFT in .env")
+            return 1
+        out = Path(args.out)
+        out.mkdir(exist_ok=True)
+        return bot(syms, lambda s, cap, pnl: research(s, out, cap, args.dry_run, day_pnl_pct=pnl), args.dry_run)
     if args.cmd == "models":
         for role, m in ((r, model_for(r)) for r in ROLES):
             print(f"{m:20s} ${PRICES[m][0]}/{PRICES[m][1]} per 1M  {JOBS[role]}")

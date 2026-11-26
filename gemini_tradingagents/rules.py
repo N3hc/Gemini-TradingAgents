@@ -23,14 +23,23 @@ def mandate():
     }
 
 
+def halted(day_pnl_pct=0.0):
+    """Why every new trade is blocked today (kill switch file, daily loss limit), or None."""
+    m = mandate()
+    if Path(m["kill_switch_file"]).exists():
+        return f"kill switch file '{m['kill_switch_file']}' exists: all new trades blocked"
+    if day_pnl_pct <= -m["max_daily_loss_pct"]:
+        return f"daily loss {day_pnl_pct:.2f}% hit the {m['max_daily_loss_pct']}% limit"
+    return None
+
+
 def check(plan, calc, capital, day_pnl_pct=0.0):
     """Returns (verdict, reasons, size_factor). size_factor < 1 means 'cut the position to this fraction'."""
     m = mandate()
     reasons, verdict, factor = [], "GO", 1.0
-    if Path(m["kill_switch_file"]).exists():
-        return "NO-GO", [f"kill switch file '{m['kill_switch_file']}' exists: all new trades blocked"], 0.0
-    if day_pnl_pct <= -m["max_daily_loss_pct"]:
-        return "NO-GO", [f"daily loss {day_pnl_pct:.2f}% hit the {m['max_daily_loss_pct']}% limit"], 0.0
+    stop = halted(day_pnl_pct)
+    if stop:
+        return "NO-GO", [stop], 0.0
     if plan.get("decision") not in ("long", "short"):
         return "NO-GO", ["strategist chose no trade"], 0.0
     if not calc:

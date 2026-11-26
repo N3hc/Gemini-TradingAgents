@@ -83,7 +83,7 @@ def argon_debate(llm, sym, plan_txt, pack, dry_run=False):
         return {"stage": "Investment committee (one Argon call)", "status": "failed", "model": model, "command": "", "output": "", "stderr": str(e)[:600]}
 
 
-def run(llm, sym, out_dir, capital=10_000, dry_run=False, only=None, deep=False, fast=False):
+def run(llm, sym, out_dir, capital=10_000, dry_run=False, only=None, deep=False, fast=False, day_pnl_pct=0.0):
     sym = sym.upper()
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     m = data.metrics(data.daily_bars(sym))
@@ -121,7 +121,7 @@ def run(llm, sym, out_dir, capital=10_000, dry_run=False, only=None, deep=False,
         verdict, engine = {"verdict": "NO-GO", "decision": "no trade", "reasons": [f"judge failed: {str(e)[:300]}"]}, "failed"
     verdict = add_targets(verdict)
     calc = sizing(verdict, m, capital)
-    rv, rreasons, factor = rules.check(verdict, calc, capital)
+    rv, rreasons, factor = rules.check(verdict, calc, capital, day_pnl_pct)
     if calc and factor < 1:
         for k in ("quantity", "position_usd", "position_pct_capital"):
             calc[k] *= factor

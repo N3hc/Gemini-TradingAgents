@@ -37,12 +37,20 @@ def _key():
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
 
 
+SECRETS = ("ALPACA_KEY", "ALPACA_SECRET")  # broker keys stay in this process: no outside tool needs them
+
+
+def tool_env(**extra):
+    """Environment for the outside tools: this process's environment minus the broker keys, plus `extra`."""
+    return {**{k: v for k, v in os.environ.items() if k.upper() not in SECRETS}, **extra}
+
+
 def _run(name, cmd, env_extra, dry_run, cwd=None):
     shown = " ".join(f'"{c}"' if " " in c else c for c in cmd)
     if dry_run:
         return {"stage": name, "status": "dry-run", "command": shown, "output": "", "stderr": ""}
     from .certs import env as ca_env
-    env = {**os.environ, **ca_env(), **env_extra}
+    env = tool_env(**ca_env(), **env_extra)
     try:
         p = subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=TIMEOUT)
     except FileNotFoundError:
@@ -94,7 +102,7 @@ def _vibe_trace_answer(run_id):
         return ""
     try:
         p = subprocess.run([str(py), "-c", TRACE_READER, run_id], capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=60, env={**os.environ, "VIBE_TRADING_HOME": str(vibe_home())})
+                           errors="replace", timeout=60, env=tool_env(VIBE_TRADING_HOME=str(vibe_home())))
         return json.loads(p.stdout.strip().splitlines()[-1]) if p.returncode == 0 and p.stdout.strip() else ""
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, IndexError):
         return ""
